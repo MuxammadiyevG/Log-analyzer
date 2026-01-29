@@ -1,0 +1,89 @@
+# Log Anomaly Detection System Configuration
+
+# Model Selection
+model:
+  type: "isolation_forest" # Options: isolation_forest, autoencoder, ensemble
+  save_path: "models/trained/"
+
+# Isolation Forest Configuration
+isolation_forest:
+  n_estimators: 200
+  contamination: 0.05 # Expected anomaly rate (5%)
+  max_samples: 1000
+  random_state: 42
+
+# Autoencoder Configuration
+autoencoder:
+  input_dim: 32
+  hidden_dims: [64, 32, 16, 8]
+  latent_dim: 4
+  learning_rate: 0.001
+  epochs: 50
+  batch_size: 256
+  reconstruction_threshold_percentile: 95
+
+# Feature Engineering
+features:
+  enabled:
+    - template_id
+    - status_code_category
+    - path_length
+    - suspicious_tokens
+    - http_method
+    - time_features
+    - ip_statistics
+    - user_agent_hash
+
+  suspicious_patterns:
+    - "../"
+    - "select"
+    - "union"
+    - "drop"
+    - "<script>"
+    - "eval("
+    - "exec("
+    - "/etc/passwd"
+    - "cmd.exe"
+
+  ip_window_minutes: 60 # Window for IP statistics
+
+# Log Parsing
+parser:
+  format: "auto" # auto, apache_combined, nginx, custom
+  drain3_config:
+    depth: 4
+    similarity_threshold: 0.5
+    max_children: 100
+
+# Thresholding
+threshold:
+  method: "percentile" # Options: percentile, mad, iqr, static
+  percentile: 95
+  mad_threshold: 3.5
+  iqr_multiplier: 1.5
+  static_value: -0.5
+
+# API Configuration
+api:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 4
+  log_level: "info"
+
+# Training
+training:
+  data_path: "data/sample_logs.txt"
+  validation_split: 0.2
+  min_samples: 1000
+  max_samples: 100000
+
+# Performance
+performance:
+  batch_size: 1000
+  cache_features: true
+  use_gpu: false
+
+# Monitoring
+monitoring:
+  enable_metrics: true
+  metrics_port: 9090

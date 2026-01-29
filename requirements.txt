@@ -1,0 +1,35 @@
+# Core dependencies
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+
+# ML & Data Processing
+scikit-learn
+numpy
+pandas
+joblib
+
+# Deep Learning
+torch
+torchvision
+
+# Log Parsing
+drain3
+python-dateutil
+
+# Monitoring & Logging
+loguru
+prometheus-client
+
+# Configuration
+pyyaml
+python-dotenv
+
+# Testing
+pytest
+pytest-asyncio
+httpx
+
+# Utils
+tqdm
