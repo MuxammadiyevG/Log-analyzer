@@ -25,7 +25,7 @@ Production-ready unsupervised machine learning system for detecting anomalies in
 
 ```bash
 # Clone repository
-git clone <repo-url>
+git clone https://github.com/MuxammadiyevG/Log-analyzer
 cd log-anomaly-detector
 
 # Create virtual environment
@@ -295,10 +295,6 @@ MIT License
 ## 📞 Support
 
 For issues and questions:
-- GitHub Issues: <repo-url>/issues
-- Documentation: <docs-url>
-- Email: support@example.com
+- Email: mukhammadiyev20040@gmail.com
 
 ---
-
-**Built with ❤️ for production security monitoring**
