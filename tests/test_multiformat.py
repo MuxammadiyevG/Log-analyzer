@@ -117,3 +117,23 @@ def test_analyzer_big_batch_statistical():
     assert out["statistical"] is True  # >= MIN_FIT
     assert out["anomalies"] >= 1
     assert out["results"][0]["anomaly"] is True
+
+
+def test_benign_syslog_batch_not_over_flagged():
+    """Regression: benign router/syslog logs must NOT come back all-critical."""
+    import random
+
+    from app.models.multiformat_detector import MultiFormatDetector
+
+    r = random.Random(3)
+    macs = ["ee:b1:d2:bb:cb:e4", "98:9e:63:2a:e9:10", "a6:81:2b:eb:68:0f"]
+    lines = []
+    for i in range(120):
+        ts = f"Apr 28 {r.randint(10,23):02d}:{r.randint(0,59):02d}:{r.randint(0,59):02d}"
+        mac = r.choice(macs); ip = f"192.168.{r.randint(20,23)}.{r.randint(2,254)}"
+        kind = r.choice(["DHCPREQUEST", "DHCPACK"])
+        lines.append(f"<30>{ts} UDM-Pro dnsmasq-dhcp[7003]: {kind}(br0) {ip} {mac}")
+    out = MultiFormatDetector().analyze(lines)
+    # benign batch: no critical/high, and few (if any) anomalies
+    assert not any(x["severity"] in ("critical", "high") for x in out["results"])
+    assert out["anomaly_rate"] < 0.1
