@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Log Anomaly Detector</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f7f9; --panel: #fff; --ink: #14161a; --muted: #667085;
+    --line: #e5e7eb; --accent: #3b5bdb; --accent-ink:#fff;
+    --normal:#12b76a; --low:#7a5af8; --medium:#f79009; --high:#ef6820; --critical:#e5484d;
+    --chip:#eef1f6;
+  }
+  @media (prefers-color-scheme: dark){ :root{
+    --bg:#0e1116; --panel:#171b22; --ink:#e6e8eb; --muted:#9aa4b2;
+    --line:#242a33; --accent:#5b7cfa; --chip:#20262f;
+  }}
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+    font: 14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 24px 16px 60px; }
+  header h1 { font-size: 22px; margin:0 0 2px; letter-spacing:-.02em; }
+  header p { margin:0 0 20px; color:var(--muted); }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+  .drop { border:1.5px dashed var(--line); border-radius:10px; padding:22px; text-align:center; color:var(--muted); cursor:pointer; transition:.15s; }
+  .drop.over { border-color:var(--accent); color:var(--ink); background:var(--chip); }
+  textarea { width:100%; min-height:120px; resize:vertical; border:1px solid var(--line);
+    border-radius:8px; padding:10px; font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;
+    background:var(--bg); color:var(--ink); }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px; }
+  button { border:0; border-radius:8px; padding:9px 16px; font-weight:600; cursor:pointer; }
+  .primary { background:var(--accent); color:var(--accent-ink); }
+  .ghost { background:var(--chip); color:var(--ink); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px; }
+  .stat { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; }
+  .stat .n { font-size:26px; font-weight:700; letter-spacing:-.02em; }
+  .stat .l { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+  table { width:100%; border-collapse:collapse; }
+  th,td { text-align:left; padding:9px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; position:sticky; top:0; background:var(--panel); }
+  td.line { font:12px/1.45 ui-monospace,Menlo,monospace; word-break:break-all; color:var(--muted); }
+  .tablewrap { overflow-x:auto; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700; color:#fff; }
+  .b-normal{background:var(--normal)} .b-low{background:var(--low)} .b-medium{background:var(--medium)}
+  .b-high{background:var(--high)} .b-critical{background:var(--critical)}
+  .muted{ color:var(--muted); } .hidden{ display:none; }
+  .bar { height:6px; border-radius:4px; background:var(--chip); overflow:hidden; }
+  .bar > i { display:block; height:100%; background:var(--accent); }
+  label.chk{ display:inline-flex; gap:6px; align-items:center; color:var(--muted); cursor:pointer; }
+  .err{ color:var(--critical); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🔥 Log Anomaly Detector</h1>
+    <p>Upload or paste <strong>any</strong> logs — web (Apache/Nginx), syslog, JSON/ECS, or anything else. Anomalies are flagged with a reason.</p>
+  </header>
+
+  <div class="panel">
+    <div id="drop" class="drop">
+      <strong>Drop a log file here</strong> or click to choose · <span class="muted">.log / .txt</span>
+      <input id="file" type="file" accept=".log,.txt,text/plain" class="hidden" />
+    </div>
+    <div style="margin:14px 0 6px" class="muted">— or paste log lines —</div>
+    <textarea id="text" placeholder='192.168.1.1 - - [01/Jan/2024:12:00:00 +0000] "GET /api/users HTTP/1.1" 200 1234 "-" "Mozilla/5.0"'></textarea>
+    <div class="row">
+      <button id="run" class="primary">Analyze</button>
+      <button id="sample" class="ghost" type="button">Load sample</button>
+      <button id="clear" class="ghost" type="button">Clear</button>
+      <span id="status" class="muted"></span>
+    </div>
+  </div>
+
+  <div id="summary" class="stats hidden" style="margin-bottom:16px"></div>
+
+  <div id="resultPanel" class="panel hidden">
+    <div class="row" style="margin:0 0 10px; justify-content:space-between">
+      <strong>Results</strong>
+      <label class="chk"><input id="onlyAnom" type="checkbox" checked /> anomalies only</label>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Severity</th><th>Score</th><th>Format</th><th>Reason</th><th>Log line</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = "/api/v1";
+const $ = s => document.querySelector(s);
+let last = null;
+
+const drop = $("#drop"), fileInput = $("#file");
+drop.onclick = () => fileInput.click();
+["dragover","dragenter"].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add("over")}));
+["dragleave","drop"].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove("over")}));
+drop.addEventListener("drop", ev => { const f = ev.dataTransfer.files[0]; if (f) analyzeFile(f); });
+fileInput.onchange = () => { if (fileInput.files[0]) analyzeFile(fileInput.files[0]); };
+
+$("#run").onclick = analyzeText;
+$("#clear").onclick = () => { $("#text").value=""; hideResults(); setStatus(""); };
+$("#sample").onclick = loadSample;
+$("#onlyAnom").onchange = () => last && render(last);
+
+function setStatus(msg, err){ const s=$("#status"); s.textContent=msg; s.className = err?"err":"muted"; }
+function hideResults(){ $("#summary").classList.add("hidden"); $("#resultPanel").classList.add("hidden"); }
+function busy(b){ $("#run").disabled=b; }
+
+async function analyzeText(){
+  const text = $("#text").value.trim();
+  if (!text){ setStatus("Paste some log lines or upload a file.", true); return; }
+  busy(true); setStatus("Analyzing…");
+  try {
+    const r = await fetch(`${API}/analyze/text`, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({text})});
+    await handle(r);
+  } catch(e){ setStatus("Request failed: "+e.message, true); } finally { busy(false); }
+}
+async function analyzeFile(f){
+  busy(true); setStatus(`Analyzing ${f.name}…`);
+  try {
+    const fd = new FormData(); fd.append("file", f);
+    const r = await fetch(`${API}/analyze/file`, {method:"POST", body: fd});
+    await handle(r);
+  } catch(e){ setStatus("Request failed: "+e.message, true); } finally { busy(false); }
+}
+async function handle(r){
+  if (!r.ok){ const j = await r.json().catch(()=>({detail:r.statusText})); setStatus("Error: "+(j.detail||r.status), true); return; }
+  last = await r.json(); render(last);
+  setStatus(`Analyzed ${last.total} lines${last.filename?` from ${last.filename}`:""}.`);
+}
+
+function render(data){
+  const s = $("#summary");
+  s.classList.remove("hidden");
+  const rate = (data.anomaly_rate*100).toFixed(1);
+  const fmts = Object.entries(data.formats||{}).map(([k,v])=>`${k}:${v}`).join(" · ") || "—";
+  const mode = data.statistical ? "signatures + statistical outliers" : "signatures only (batch too small for stats)";
+  s.innerHTML = `
+    <div class="stat"><div class="n">${data.total}</div><div class="l">Lines</div></div>
+    <div class="stat"><div class="n" style="color:var(--critical)">${data.anomalies}</div><div class="l">Anomalies</div></div>
+    <div class="stat"><div class="n">${rate}%</div><div class="l">Anomaly rate</div>
+      <div class="bar" style="margin-top:8px"><i style="width:${Math.min(rate,100)}%"></i></div></div>
+    <div class="stat"><div class="n" style="font-size:14px">${fmts}</div><div class="l">Formats detected</div>
+      <div class="muted" style="margin-top:6px;font-size:11px">${mode}</div></div>`;
+  const onlyAnom = $("#onlyAnom").checked;
+  const rows = data.results.filter(r => !onlyAnom || r.anomaly);
+  $("#resultPanel").classList.remove("hidden");
+  const tb = $("#rows");
+  if (!rows.length){ tb.innerHTML = `<tr><td colspan="4" class="muted">No ${onlyAnom?"anomalies":"lines"} to show.</td></tr>`; return; }
+  tb.innerHTML = rows.map(r => `
+    <tr>
+      <td><span class="badge b-${r.severity}">${r.severity}</span></td>
+      <td>${r.score}</td>
+      <td><span class="muted">${escapeHtml(r.format||"")}</span></td>
+      <td>${escapeHtml(r.reason)}</td>
+      <td class="line">${escapeHtml(r.line)}</td>
+    </tr>`).join("");
+}
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+function loadSample(){
+  $("#text").value = [
+    '// mixed formats — web, syslog, JSON/ECS',
+    '192.168.1.100 - - [01/Jan/2024:10:15:23 +0000] "GET /api/users HTTP/1.1" 200 1234 "-" "Mozilla/5.0"',
+    '10.0.0.51 - - [01/Jan/2024:10:15:39 +0000] "GET /admin/../../etc/passwd HTTP/1.1" 403 0 "-" "curl/7.68.0"',
+    '10.0.0.9 - - [01/Jan/2024:10:16:01 +0000] "GET /p?id=1 UNION SELECT pass FROM users-- HTTP/1.1" 500 0 "-" "sqlmap/1.7"',
+    'Aug 10 12:00:01 web01 sshd[2211]: Accepted password for admin from 10.0.0.2 port 55021 ssh2',
+    'Aug 10 12:00:05 web01 sshd[2213]: Failed password for invalid user root from 45.9.1.7 port 6001 ssh2',
+    'Aug 10 12:00:06 web01 kernel: Out of memory: Killed process 1899 (java)',
+    '{"@timestamp":"2024-01-01T10:00:00Z","log.level":"info","message":"user login ok","service":{"name":"api"}}',
+    '{"@timestamp":"2024-01-01T10:00:02Z","log.level":"error","message":"unhandled exception: NullPointerException at auth.js:44","service":{"name":"api"}}',
+  ].join("\n");
+  setStatus("Mixed-format sample loaded — click Analyze.");
+}
+</script>
+</body>
+</html>

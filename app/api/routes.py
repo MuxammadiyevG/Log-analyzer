@@ -4,12 +4,13 @@ FastAPI routes for anomaly detection API
 
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from loguru import logger
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
 from app.core.detector import AnomalyDetector
+from app.models.multiformat_detector import MultiFormatDetector
 
 
 # Request/Response models
@@ -211,3 +212,39 @@ async def reset_stats() -> Dict[str, str]:
     request_stats["total"] = 0
     request_stats["anomalies"] = 0
     return {"message": "Statistics reset successfully"}
+
+
+# --- Multi-format analysis (any log format) — powers the web UI -------------
+
+# Stateless engine: fits an outlier model on each uploaded batch, no training
+# or warmup needed. Handles web / syslog / JSON-ECS / generic.
+_multiformat = MultiFormatDetector()
+
+
+class TextRequest(BaseModel):
+    """Raw log text, one entry per line (any format)."""
+
+    text: str = Field(..., description="Log lines separated by newlines")
+
+
+@router.post("/analyze/text")
+async def analyze_text(request: TextRequest) -> Dict[str, Any]:
+    """Analyze pasted log text (any format)."""
+    try:
+        return _multiformat.analyze(request.text.splitlines())
+    except Exception as e:
+        logger.error(f"analyze_text failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/analyze/file")
+async def analyze_file(file: UploadFile = File(...)) -> Dict[str, Any]:
+    """Analyze an uploaded log file (any format)."""
+    try:
+        raw = (await file.read()).decode("utf-8", errors="ignore")
+        result = _multiformat.analyze(raw.splitlines())
+        result["filename"] = file.filename
+        return result
+    except Exception as e:
+        logger.error(f"analyze_file failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

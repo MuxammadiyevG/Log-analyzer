@@ -4,14 +4,18 @@ FastAPI application entry point
 
 import sys
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
 from app.api.routes import router
 from app.core.config import settings
+
+STATIC_DIR = Path(__file__).parent / "static"
 
 # Configure logging
 logger.remove()
@@ -65,14 +69,30 @@ if settings.ENABLE_CORS:
 # Include routers
 app.include_router(router, prefix="/api/v1", tags=["anomaly-detection"])
 
+# Static assets + web UI
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-@app.get("/")
+
+@app.get("/", include_in_schema=False)
 async def root():
-    """Root endpoint"""
+    """Serve the web UI (falls back to API info if the page is missing)."""
+    index = STATIC_DIR / "index.html"
+    if index.exists():
+        return FileResponse(str(index))
+    return JSONResponse(
+        {"message": "Log Anomaly Detection API", "version": "1.0.0", "docs": "/docs"}
+    )
+
+
+@app.get("/api")
+async def api_info():
+    """API info (the old root payload)."""
     return {
         "message": "Log Anomaly Detection API",
         "version": "1.0.0",
         "docs": "/docs",
+        "ui": "/",
         "health": "/api/v1/health",
     }
 
