@@ -33,3 +33,6 @@ httpx
 
 # Utils
 tqdm
+
+# LLM explainer (Phase 4, optional — lazily imported)
+anthropic
